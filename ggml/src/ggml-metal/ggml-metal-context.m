@@ -11,6 +11,9 @@
 
 #import <Metal/Metal.h>
 
+#include <stdint.h>
+#include <unistd.h>
+
 #undef MIN
 #undef MAX
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -327,12 +330,29 @@ void ggml_metal_set_tensor_async(ggml_metal_t ctx, struct ggml_tensor * tensor, 
 }
 
 void ggml_metal_get_tensor_async(ggml_metal_t ctx, const struct ggml_tensor * tensor, void * data, size_t offset, size_t size) {
+    if (data == NULL || size == 0) {
+        return;
+    }
+
     @autoreleasepool {
         id<MTLDevice> device = ggml_metal_device_get_obj(ctx->dev);
-        id<MTLBuffer> buf_dst = [device newBufferWithBytesNoCopy:data
-                                                          length:size
-                                                         options:MTLResourceStorageModeShared
-                                                     deallocator:nil];
+
+        bool use_no_copy = false;
+        const size_t size_page = sysconf(_SC_PAGESIZE);
+        if (size_page > 0) {
+            use_no_copy = ((uintptr_t) data % size_page) == 0;
+        }
+
+        id<MTLBuffer> buf_dst = nil;
+        if (use_no_copy) {
+            buf_dst = [device newBufferWithBytesNoCopy:data
+                                                length:size
+                                               options:MTLResourceStorageModeShared
+                                           deallocator:nil];
+        } else {
+            // Fallback for unaligned pointers where bytesNoCopy validation fails.
+            buf_dst = [device newBufferWithLength:size options:MTLResourceStorageModeShared];
+        }
 
         GGML_ASSERT(buf_dst);
 
@@ -356,6 +376,20 @@ void ggml_metal_get_tensor_async(ggml_metal_t ctx, const struct ggml_tensor * te
                            size:size];
 
         [encoder endEncoding];
+
+        if (!use_no_copy) {
+            void * data_dst = data;
+            [buf_dst retain];
+
+            [cmd_buf addCompletedHandler:^(id<MTLCommandBuffer> cb) {
+                if (cb.status == MTLCommandBufferStatusCompleted) {
+                    memcpy(data_dst, [buf_dst contents], size);
+                }
+
+                [buf_dst release];
+            }];
+        }
+
         [cmd_buf commit];
         [buf_dst release];
 
