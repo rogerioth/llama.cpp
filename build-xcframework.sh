@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
 # Options
-IOS_MIN_OS_VERSION=16.4
+IOS_MIN_OS_VERSION=15.0
 MACOS_MIN_OS_VERSION=13.3
 VISIONOS_MIN_OS_VERSION=1.0
 TVOS_MIN_OS_VERSION=16.4
-CATALYST_MIN_OS_VERSION=16.4
+CATALYST_MIN_OS_VERSION=15.0
 
 BUILD_SHARED_LIBS=OFF
 LLAMA_BUILD_EXAMPLES=OFF
@@ -257,9 +257,18 @@ combine_static_libraries() {
         "${base_dir}/${build_dir}/ggml/src/${release_dir}/libggml.a"
         "${base_dir}/${build_dir}/ggml/src/${release_dir}/libggml-base.a"
         "${base_dir}/${build_dir}/ggml/src/${release_dir}/libggml-cpu.a"
+    )
+
+    local optional_libs=(
         "${base_dir}/${build_dir}/ggml/src/ggml-metal/${release_dir}/libggml-metal.a"
         "${base_dir}/${build_dir}/ggml/src/ggml-blas/${release_dir}/libggml-blas.a"
     )
+
+    for lib in "${optional_libs[@]}"; do
+        if [[ -f "${lib}" ]]; then
+            libs+=("${lib}")
+        fi
+    done
 
     # Create temporary directory for processing
     local temp_dir="${base_dir}/${build_dir}/temp"
@@ -421,6 +430,7 @@ cmake -B build-ios-sim -G Xcode \
     "${COMMON_CMAKE_ARGS[@]}" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=${IOS_MIN_OS_VERSION} \
     -DIOS=ON \
+    -DGGML_BLAS=OFF \
     -DCMAKE_SYSTEM_NAME=iOS \
     -DCMAKE_OSX_SYSROOT=iphonesimulator \
     -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
@@ -435,6 +445,7 @@ echo "Building for iOS devices..."
 cmake -B build-ios-device -G Xcode \
     "${COMMON_CMAKE_ARGS[@]}" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=${IOS_MIN_OS_VERSION} \
+    -DGGML_BLAS=OFF \
     -DCMAKE_SYSTEM_NAME=iOS \
     -DCMAKE_OSX_SYSROOT=iphoneos \
     -DCMAKE_OSX_ARCHITECTURES="arm64" \
@@ -461,6 +472,7 @@ cmake -B build-maccatalyst -G Xcode \
     "${COMMON_CMAKE_ARGS[@]}" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOS_MIN_OS_VERSION} \
     -DCMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET=${CATALYST_MIN_OS_VERSION} \
+    -DGGML_BLAS=OFF \
     -DCMAKE_SYSTEM_NAME=iOS \
     -DCMAKE_OSX_SYSROOT=macosx \
     -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
