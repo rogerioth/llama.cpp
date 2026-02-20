@@ -85,8 +85,8 @@ setup_framework_structure() {
 
     echo "Creating ${platform}-style framework structure for ${build_dir}"
 
-    if [[ "$platform" == "macos" ]]; then
-        # macOS versioned structure uses versioned directories
+    if [[ "$platform" == "macos" || "$platform" == "maccatalyst" ]]; then
+        # macOS and Mac Catalyst use a versioned framework structure
         mkdir -p ${build_dir}/framework/${framework_name}.framework/Versions/A/Headers
         mkdir -p ${build_dir}/framework/${framework_name}.framework/Versions/A/Modules
         mkdir -p ${build_dir}/framework/${framework_name}.framework/Versions/A/Resources
@@ -102,7 +102,7 @@ setup_framework_structure() {
         local header_path=${build_dir}/framework/${framework_name}.framework/Versions/A/Headers/
         local module_path=${build_dir}/framework/${framework_name}.framework/Versions/A/Modules/
     else
-        # iOS/Mac Catalyst/visionOS/tvOS use a flat structure
+        # iOS/visionOS/tvOS use a flat structure
         mkdir -p ${build_dir}/framework/${framework_name}.framework/Headers
         mkdir -p ${build_dir}/framework/${framework_name}.framework/Modules
 
@@ -174,7 +174,7 @@ EOF
             platform_name="macosx"
             sdk_name="macosx${min_os_version}"
             supported_platform="MacOSX"
-            local plist_path="${build_dir}/framework/${framework_name}.framework/Info.plist"
+            local plist_path="${build_dir}/framework/${framework_name}.framework/Versions/A/Resources/Info.plist"
             local device_family=""
             ;;
         "visionos")
@@ -244,11 +244,11 @@ combine_static_libraries() {
 
     # Determine output path based on platform
     local output_lib=""
-    if [[ "$platform" == "macos" ]]; then
-        # macOS uses versioned structure
+    if [[ "$platform" == "macos" || "$platform" == "maccatalyst" ]]; then
+        # macOS and Mac Catalyst use versioned structure
         output_lib="${build_dir}/framework/${framework_name}.framework/Versions/A/${framework_name}"
     else
-        # iOS, Mac Catalyst, visionOS, and tvOS use a directory flat structure
+        # iOS, visionOS, and tvOS use a flat structure
         output_lib="${build_dir}/framework/${framework_name}.framework/${framework_name}"
     fi
 
@@ -307,7 +307,7 @@ combine_static_libraries() {
             sdk="macosx"
             archs="arm64 x86_64"
             min_version_flag="-target x86_64-apple-ios${CATALYST_MIN_OS_VERSION}-macabi"
-            install_name="@rpath/llama.framework/llama"
+            install_name="@rpath/llama.framework/Versions/Current/llama"
             ;;
         "visionos")
             if [[ "$is_simulator" == "true" ]]; then
