@@ -5,6 +5,7 @@ IOS_MIN_OS_VERSION=16.4
 MACOS_MIN_OS_VERSION=13.3
 VISIONOS_MIN_OS_VERSION=1.0
 TVOS_MIN_OS_VERSION=16.4
+CATALYST_MIN_OS_VERSION=16.4
 
 BUILD_SHARED_LIBS=OFF
 LLAMA_BUILD_EXAMPLES=OFF
@@ -69,6 +70,7 @@ rm -rf build-apple
 rm -rf build-ios-sim
 rm -rf build-ios-device
 rm -rf build-macos
+rm -rf build-maccatalyst
 rm -rf build-visionos
 rm -rf build-visionos-sim
 rm -rf build-tvos-sim
@@ -78,7 +80,7 @@ rm -rf build-tvos-device
 setup_framework_structure() {
     local build_dir=$1
     local min_os_version=$2
-    local platform=$3  # "ios", "macos", "visionos", or "tvos"
+    local platform=$3  # "ios", "macos", "maccatalyst", "visionos", or "tvos"
     local framework_name="llama"
 
     echo "Creating ${platform}-style framework structure for ${build_dir}"
@@ -100,7 +102,7 @@ setup_framework_structure() {
         local header_path=${build_dir}/framework/${framework_name}.framework/Versions/A/Headers/
         local module_path=${build_dir}/framework/${framework_name}.framework/Versions/A/Modules/
     else
-        # iOS/VisionOS/tvOS use a flat structure
+        # iOS/Mac Catalyst/visionOS/tvOS use a flat structure
         mkdir -p ${build_dir}/framework/${framework_name}.framework/Headers
         mkdir -p ${build_dir}/framework/${framework_name}.framework/Modules
 
@@ -168,6 +170,13 @@ EOF
             local plist_path="${build_dir}/framework/${framework_name}.framework/Versions/A/Resources/Info.plist"
             local device_family=""
             ;;
+        "maccatalyst")
+            platform_name="macosx"
+            sdk_name="macosx${min_os_version}"
+            supported_platform="MacOSX"
+            local plist_path="${build_dir}/framework/${framework_name}.framework/Info.plist"
+            local device_family=""
+            ;;
         "visionos")
             platform_name="xros"
             sdk_name="xros${min_os_version}"
@@ -228,7 +237,7 @@ EOF
 combine_static_libraries() {
     local build_dir="$1"
     local release_dir="$2"
-    local platform="$3"  # "ios", "macos", "visionos", or "tvos"
+    local platform="$3"  # "ios", "macos", "maccatalyst", "visionos", or "tvos"
     local is_simulator="$4"
     local base_dir="$(pwd)"
     local framework_name="llama"
@@ -239,7 +248,7 @@ combine_static_libraries() {
         # macOS uses versioned structure
         output_lib="${build_dir}/framework/${framework_name}.framework/Versions/A/${framework_name}"
     else
-        # iOS, visionOS, and tvOS use a directory flat structure
+        # iOS, Mac Catalyst, visionOS, and tvOS use a directory flat structure
         output_lib="${build_dir}/framework/${framework_name}.framework/${framework_name}"
     fi
 
@@ -284,6 +293,12 @@ combine_static_libraries() {
             archs="arm64 x86_64"
             min_version_flag="-mmacosx-version-min=${MACOS_MIN_OS_VERSION}"
             install_name="@rpath/llama.framework/Versions/Current/llama"
+            ;;
+        "maccatalyst")
+            sdk="macosx"
+            archs="arm64 x86_64"
+            min_version_flag="-target x86_64-apple-ios${CATALYST_MIN_OS_VERSION}-macabi"
+            install_name="@rpath/llama.framework/llama"
             ;;
         "visionos")
             if [[ "$is_simulator" == "true" ]]; then
@@ -365,8 +380,8 @@ combine_static_libraries() {
     # Create a separate directory for dSYMs for all platforms
     mkdir -p "${base_dir}/${build_dir}/dSYMs"
 
-    # iOS and visionOS style dSYM (flat structure)
-    if [[ "$platform" == "ios" || "$platform" == "visionos" || "$platform" == "tvos" ]]; then
+    # iOS, Mac Catalyst and visionOS style dSYM (flat structure)
+    if [[ "$platform" == "ios" || "$platform" == "maccatalyst" || "$platform" == "visionos" || "$platform" == "tvos" ]]; then
         # Generate dSYM in the dSYMs directory
         xcrun dsymutil "${base_dir}/${output_lib}" -o "${base_dir}/${build_dir}/dSYMs/llama.dSYM"
 
@@ -441,6 +456,27 @@ cmake -B build-macos -G Xcode \
     -S .
 cmake --build build-macos --config Release -- -quiet
 
+echo "Building for Mac Catalyst..."
+cmake -B build-maccatalyst -G Xcode \
+    "${COMMON_CMAKE_ARGS[@]}" \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOS_MIN_OS_VERSION} \
+    -DCMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET=${CATALYST_MIN_OS_VERSION} \
+    -DCMAKE_SYSTEM_NAME=iOS \
+    -DCMAKE_OSX_SYSROOT=macosx \
+    -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+    -DCMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS=macosx \
+    -DCMAKE_XCODE_ATTRIBUTE_SUPPORTS_MACCATALYST=YES \
+    -DCMAKE_C_FLAGS="${COMMON_C_FLAGS}" \
+    -DCMAKE_CXX_FLAGS="${COMMON_CXX_FLAGS}" \
+    -DLLAMA_OPENSSL=OFF \
+    -S .
+xcodebuild \
+    -project build-maccatalyst/llama.cpp.xcodeproj \
+    -scheme ALL_BUILD \
+    -configuration Release \
+    -destination "generic/platform=macOS,variant=Mac Catalyst" \
+    build -quiet
+
 echo "Building for visionOS..."
 cmake -B build-visionos -G Xcode \
     "${COMMON_CMAKE_ARGS[@]}" \
@@ -507,6 +543,7 @@ echo "Setting up framework structures..."
 setup_framework_structure "build-ios-sim" ${IOS_MIN_OS_VERSION} "ios"
 setup_framework_structure "build-ios-device" ${IOS_MIN_OS_VERSION} "ios"
 setup_framework_structure "build-macos" ${MACOS_MIN_OS_VERSION} "macos"
+setup_framework_structure "build-maccatalyst" ${CATALYST_MIN_OS_VERSION} "maccatalyst"
 setup_framework_structure "build-visionos" ${VISIONOS_MIN_OS_VERSION} "visionos"
 setup_framework_structure "build-visionos-sim" ${VISIONOS_MIN_OS_VERSION} "visionos"
 setup_framework_structure "build-tvos-sim" ${TVOS_MIN_OS_VERSION} "tvos"
@@ -517,6 +554,7 @@ echo "Creating dynamic libraries from static libraries..."
 combine_static_libraries "build-ios-sim" "Release-iphonesimulator" "ios" "true"
 combine_static_libraries "build-ios-device" "Release-iphoneos" "ios" "false"
 combine_static_libraries "build-macos" "Release" "macos" "false"
+combine_static_libraries "build-maccatalyst" "Release" "maccatalyst" "false"
 combine_static_libraries "build-visionos" "Release-xros" "visionos" "false"
 combine_static_libraries "build-visionos-sim" "Release-xrsimulator" "visionos" "true"
 combine_static_libraries "build-tvos-sim" "Release-appletvsimulator" "tvos" "true"
@@ -531,6 +569,8 @@ xcrun xcodebuild -create-xcframework \
     -debug-symbols $(pwd)/build-ios-device/dSYMs/llama.dSYM \
     -framework $(pwd)/build-macos/framework/llama.framework \
     -debug-symbols $(pwd)/build-macos/dSYMs/llama.dSYM \
+    -framework $(pwd)/build-maccatalyst/framework/llama.framework \
+    -debug-symbols $(pwd)/build-maccatalyst/dSYMs/llama.dSYM \
     -framework $(pwd)/build-visionos/framework/llama.framework \
     -debug-symbols $(pwd)/build-visionos/dSYMs/llama.dSYM \
     -framework $(pwd)/build-visionos-sim/framework/llama.framework \
